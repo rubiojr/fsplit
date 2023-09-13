@@ -29,12 +29,17 @@ type Splitter interface {
 	ReadManifest(path string) (*Manifest, error)
 	Assemble(mf *Manifest, dst io.Writer) error
 	Split(source io.Reader, dstDir string) (string, error)
+	ChunkerPolynomial() chunker.Pol
 }
 
 type splitter struct {
 	MinSize    uint // in Bytes
 	MaxSize    uint // in Bytes
 	Polynomial chunker.Pol
+}
+
+func (s *splitter) ChunkerPolynomial() chunker.Pol {
+	return s.Polynomial
 }
 
 func DefaultSplitter() Splitter {
