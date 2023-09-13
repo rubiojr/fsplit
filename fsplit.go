@@ -2,6 +2,8 @@ package fsplit
 
 import (
 	"bufio"
+	"sync"
+
 	//"crypto/sha256"
 	"fmt"
 	"io"
@@ -25,10 +27,18 @@ type Manifest struct {
 	Polynomial chunker.Pol
 }
 
+type Chunk struct {
+	Position uint64
+	Size     uint64
+	Data     []byte
+}
+
 type Splitter interface {
 	ReadManifest(path string) (*Manifest, error)
 	Assemble(mf *Manifest, dst io.Writer) error
 	Split(source io.Reader, dstDir string) (string, error)
+	StreamChunks(source io.Reader, chunks chan *Chunk, done chan string) error
+	SplitParallel(source io.Reader, dstDir string) (string, error)
 	ChunkerPolynomial() chunker.Pol
 }
 
@@ -36,6 +46,96 @@ type splitter struct {
 	MinSize    uint // in Bytes
 	MaxSize    uint // in Bytes
 	Polynomial chunker.Pol
+}
+
+func (s *splitter) SplitParallel(source io.Reader, dstDir string) (string, error) {
+	ch := make(chan *Chunk, 10)
+	var totalSize int64
+	chunks := make([]string, 1024)
+	var count int
+	done := make(chan string)
+
+	go func() {
+		s.StreamChunks(source, ch, done)
+	}()
+
+	wg := sync.WaitGroup{}
+	for c := range ch {
+		wg.Add(1)
+		go func(c *Chunk) {
+			count++
+			csum := sha256.Sum256(c.Data)
+			tfile := fmt.Sprintf("%s/%02x.chk", dstDir, csum)
+			totalSize = totalSize + int64(c.Size)
+			chunks[c.Position] = fmt.Sprintf("%d %02x", c.Size, csum)
+			err := os.WriteFile(tfile, c.Data, 0644)
+			wg.Done()
+			if err != nil {
+				panic(err)
+			}
+		}(c)
+	}
+
+	wg.Wait()
+	fileHash := <-done
+	mfpath := fmt.Sprintf("%s/%s.manifest", dstDir, fileHash)
+	mf, err := os.Create(mfpath)
+	if err != nil {
+		return fileHash, err
+	}
+	defer mf.Close()
+
+	_, err = mf.WriteString(fmt.Sprintf("%s %d %s\n", s.Polynomial, totalSize, fileHash))
+	if err != nil {
+		return fileHash, err
+	}
+
+	for _, c := range chunks[:count] {
+		if c == "" {
+			panic("empty")
+		}
+		_, err = mf.Write([]byte(c + "\n"))
+		if err != nil {
+			return fileHash, err
+		}
+	}
+
+	return fileHash, nil
+}
+
+func (s *splitter) StreamChunks(source io.Reader, ch chan *Chunk, done chan string) error {
+	h := sha256.New()
+	tee := io.TeeReader(source, h)
+
+	chnkr := chunker.NewWithBoundaries(tee, s.Polynomial, s.MinSize, s.MaxSize)
+	buf := make([]byte, maxSize)
+
+	var pos uint64
+	for {
+		chunk, err := chnkr.Next(buf)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return err
+		}
+
+		c := &Chunk{
+			Position: pos,
+			Size:     uint64(chunk.Length),
+			Data:     make([]byte, chunk.Length),
+		}
+		copy(c.Data, chunk.Data)
+		pos++
+		ch <- c
+	}
+	close(ch)
+
+	fileHash := fmt.Sprintf("%x", h.Sum(nil))
+	done <- fileHash
+
+	return nil
 }
 
 func (s *splitter) ChunkerPolynomial() chunker.Pol {
@@ -66,7 +166,10 @@ func (s *splitter) ReadManifest(path string) (*Manifest, error) {
 		line := scanner.Text()
 
 		if firstLine {
-			_, err = fmt.Sscanf(line, "%s %d %s", &mf.Polynomial, &mf.Size, &mf.Hash)
+			_, err = fmt.Sscanf(line, "0x%x %d %s", &mf.Polynomial, &mf.Size, &mf.Hash)
+			if err != nil {
+				return nil, err
+			}
 			firstLine = false
 			continue
 		}
@@ -118,7 +221,7 @@ func (s *splitter) Split(source io.Reader, dstDir string) (string, error) {
 	chnkr := chunker.NewWithBoundaries(tee, s.Polynomial, s.MinSize, s.MaxSize)
 	buf := make([]byte, maxSize)
 
-	chunks := map[string]uint{}
+	chunks := []string{}
 	for {
 		chunk, err := chnkr.Next(buf)
 		if err == io.EOF {
@@ -131,7 +234,7 @@ func (s *splitter) Split(source io.Reader, dstDir string) (string, error) {
 
 		totalSize = totalSize + int64(chunk.Length)
 		csum := sha256.Sum256(chunk.Data)
-		chunks[fmt.Sprintf("%02x", csum)] = chunk.Length
+		chunks = append(chunks, fmt.Sprintf("%d %02x", chunk.Length, csum))
 		tfile := fmt.Sprintf("%s/%02x.chk", dstDir, csum)
 		os.WriteFile(tfile, chunk.Data, 0644)
 	}
@@ -149,8 +252,8 @@ func (s *splitter) Split(source io.Reader, dstDir string) (string, error) {
 		return fileHash, err
 	}
 
-	for sha, size := range chunks {
-		_, err = mf.WriteString(fmt.Sprintf("%d %s\n", size, sha))
+	for _, c := range chunks {
+		_, err = mf.WriteString(c + "\n")
 		if err != nil {
 			return fileHash, err
 		}

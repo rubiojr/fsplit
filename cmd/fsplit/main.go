@@ -51,6 +51,7 @@ var assembleCmd = &cli.Command{
 		defer h.(*os.File).Close()
 		if !argv.Quiet {
 			fmt.Println("Assembling", argv.Manifest, "into", argv.Dst, "...")
+			fmt.Println("Size:", manifest.Size)
 			bar := pb.Full.Start64(manifest.Size)
 			exitIfErr(err)
 
@@ -69,6 +70,7 @@ type splitT struct {
 	ChunkDir       string `cli:"*chunk-dir" usage:"directory to store chunks"`
 	CreateChunkDir bool   `cli:"create-chunk-dir" usage:"Create chunk directory if not exists"`
 	Quiet          bool   `cli:"quiet" usage:"be quiet"`
+	Parallel       bool   `cli:"parallel" usage:"split in parallel"`
 }
 
 var splitCmd = &cli.Command{
@@ -101,7 +103,11 @@ var splitCmd = &cli.Command{
 			defer bar.Finish()
 		}
 
-		_, err = splitter.Split(sf, argv.ChunkDir)
+		if argv.Parallel {
+			_, err = splitter.SplitParallel(sf, argv.ChunkDir)
+		} else {
+			_, err = splitter.Split(sf, argv.ChunkDir)
+		}
 		exitIfErr(err)
 
 		return nil
