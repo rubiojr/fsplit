@@ -1,0 +1,24 @@
+#!/bin/bash
+set -e
+
+BASE_PATH=$(dirname $0)/..
+
+mkdir -p $BASE_PATH/tmp/chunks
+trap "rm -rf $BASE_PATH/tmp" EXIT
+
+head -c 256MB </dev/urandom >$BASE_PATH/tmp/file
+
+./bin/fsplit split --quiet --file $BASE_PATH/tmp/file --chunk-dir $BASE_PATH/tmp/chunks
+./bin/fsplit assemble --quiet --manifest $BASE_PATH/tmp/chunks/*manifest --output $BASE_PATH/tmp/file.assembled
+
+lines=$(
+  sha256sum $BASE_PATH/tmp/file $BASE_PATH/tmp/file.assembled | \
+      cut -d " " -f 1 | \
+      uniq | wc -l
+)
+
+if [ $lines -eq 1 ]; then
+    echo "✅ Test passed"
+else
+    echo "❌Test failed"
+fi
