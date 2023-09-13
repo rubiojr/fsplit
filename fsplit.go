@@ -59,7 +59,6 @@ func (s *splitter) ReadManifest(path string) (*Manifest, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		sha := strings.Split(line, " ")[2]
 
 		if firstLine {
 			_, err = fmt.Sscanf(line, "%s %d %s", &mf.Polynomial, &mf.Size, &mf.Hash)
@@ -67,6 +66,7 @@ func (s *splitter) ReadManifest(path string) (*Manifest, error) {
 			continue
 		}
 
+		sha := strings.Split(line, " ")[1]
 		chunks = append(chunks, sha)
 	}
 
