@@ -101,6 +101,10 @@ func (s *splitter) Assemble(mf *Manifest, dst io.Writer) error {
 }
 
 func (s *splitter) Split(source io.Reader, dstDir string) (string, error) {
+	if _, err := os.Stat(dstDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("chunks destination directory does not exist")
+	}
+
 	var totalSize int64
 	var err error
 	h := sha256.New()

@@ -44,9 +44,7 @@ var assembleCmd = &cli.Command{
 		splitter := fsplit.DefaultSplitter()
 
 		manifest, err := splitter.ReadManifest(argv.Manifest)
-		if err != nil {
-			panic(err)
-		}
+		exitIfErr(err)
 
 		var h io.Writer
 		h, err = os.Create(argv.Dst)
@@ -54,9 +52,8 @@ var assembleCmd = &cli.Command{
 		if !argv.Quiet {
 			fmt.Println("Assembling", argv.Manifest, "into", argv.Dst, "...")
 			bar := pb.Full.Start64(manifest.Size)
-			if err != nil {
-				panic(err)
-			}
+			exitIfErr(err)
+
 			h = bar.NewProxyWriter(h)
 			defer bar.Finish()
 		}
@@ -68,9 +65,10 @@ var assembleCmd = &cli.Command{
 
 type splitT struct {
 	cli.Helper
-	Source   string `cli:"*file" usage:"source file to split"`
-	ChunkDir string `cli:"*chunk-dir" usage:"directory to store chunks"`
-	Quiet    bool   `cli:"quiet" usage:"be quiet"`
+	Source         string `cli:"*file" usage:"source file to split"`
+	ChunkDir       string `cli:"*chunk-dir" usage:"directory to store chunks"`
+	CreateChunkDir bool   `cli:"create-chunk-dir" usage:"Create chunk directory if not exists"`
+	Quiet          bool   `cli:"quiet" usage:"be quiet"`
 }
 
 var splitCmd = &cli.Command{
@@ -80,33 +78,32 @@ var splitCmd = &cli.Command{
 	Fn: func(ctx *cli.Context) error {
 		argv := ctx.Argv().(*splitT)
 
+		if argv.CreateChunkDir {
+			err := os.MkdirAll(argv.ChunkDir, os.ModePerm)
+			exitIfErr(err)
+		}
+
 		splitter := fsplit.DefaultSplitter()
 
 		var sf io.Reader
 		sf, err := os.Open(argv.Source)
 		defer sf.(*os.File).Close()
-		if err != nil {
-			panic(err)
-		}
+		exitIfErr(err)
 
 		if !argv.Quiet {
 			fmt.Println("Splitting", argv.Source, "into", argv.ChunkDir, "...")
 			fi, err := sf.(*os.File).Stat()
-			if err != nil {
-				panic(err)
-			}
+			exitIfErr(err)
+
 			bar := pb.Full.Start64(fi.Size())
-			if err != nil {
-				panic(err)
-			}
+			exitIfErr(err)
 			sf = bar.NewProxyReader(sf)
 			defer bar.Finish()
 		}
 
 		_, err = splitter.Split(sf, argv.ChunkDir)
-		if err != nil {
-			panic(err)
-		}
+		exitIfErr(err)
+
 		return nil
 	},
 }
@@ -118,6 +115,13 @@ func main() {
 		cli.Tree(assembleCmd),
 	).Run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func exitIfErr(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "err: "+err.Error())
 		os.Exit(1)
 	}
 }
