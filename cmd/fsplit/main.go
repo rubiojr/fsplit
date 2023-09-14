@@ -71,6 +71,7 @@ type splitT struct {
 	CreateChunkDir bool   `cli:"create-chunk-dir" usage:"Create chunk directory if not exists"`
 	Quiet          bool   `cli:"quiet" usage:"be quiet"`
 	Parallel       bool   `cli:"parallel" usage:"split in parallel"`
+	Hasher         string `cli:"hasher" usage:"hasher to use" dft:"zeebo"`
 }
 
 var splitCmd = &cli.Command{
@@ -80,12 +81,26 @@ var splitCmd = &cli.Command{
 	Fn: func(ctx *cli.Context) error {
 		argv := ctx.Argv().(*splitT)
 
+		var hasher fsplit.Hasher
+		switch argv.Hasher {
+		case "zeebo":
+			hasher = fsplit.NewZeeboHasher()
+		case "sha256":
+			hasher = fsplit.NewSha256Hasher()
+		case "luke":
+			hasher = fsplit.NewLukeHasher()
+		default:
+			fmt.Fprintln(os.Stderr, "Unknown hasher:", argv.Hasher)
+			os.Exit(1)
+		}
+
 		if argv.CreateChunkDir {
 			err := os.MkdirAll(argv.ChunkDir, os.ModePerm)
 			exitIfErr(err)
 		}
 
 		splitter := fsplit.DefaultSplitter()
+		splitter.SetHasher(hasher)
 
 		var sf io.Reader
 		sf, err := os.Open(argv.Source)

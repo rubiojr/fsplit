@@ -4,14 +4,11 @@ import (
 	"bufio"
 	"sync"
 
-	//"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/minio/sha256-simd"
 
 	"github.com/restic/chunker"
 )
@@ -40,12 +37,18 @@ type Splitter interface {
 	StreamChunks(source io.Reader, chunks chan *Chunk, done chan string) error
 	SplitParallel(source io.Reader, dstDir string) (string, error)
 	ChunkerPolynomial() chunker.Pol
+	SetHasher(h Hasher)
 }
 
 type splitter struct {
 	MinSize    uint // in Bytes
 	MaxSize    uint // in Bytes
 	Polynomial chunker.Pol
+	hasher     Hasher
+}
+
+func (s *splitter) SetHasher(h Hasher) {
+	s.hasher = h
 }
 
 func (s *splitter) SplitParallel(source io.Reader, dstDir string) (string, error) {
@@ -64,7 +67,7 @@ func (s *splitter) SplitParallel(source io.Reader, dstDir string) (string, error
 		wg.Add(1)
 		go func(c *Chunk) {
 			count++
-			csum := sha256.Sum256(c.Data)
+			csum := s.hasher.Hash(c.Data)
 			tfile := fmt.Sprintf("%s/%02x.chk", dstDir, csum)
 			totalSize = totalSize + int64(c.Size)
 			chunks[c.Position] = fmt.Sprintf("%d %02x", c.Size, csum)
@@ -104,7 +107,7 @@ func (s *splitter) SplitParallel(source io.Reader, dstDir string) (string, error
 }
 
 func (s *splitter) StreamChunks(source io.Reader, ch chan *Chunk, done chan string) error {
-	h := sha256.New()
+	h := s.hasher.Hasher()
 	tee := io.TeeReader(source, h)
 
 	chnkr := chunker.NewWithBoundaries(tee, s.Polynomial, s.MinSize, s.MaxSize)
@@ -147,7 +150,11 @@ func DefaultSplitter() Splitter {
 	if err != nil {
 		panic(err)
 	}
-	return &splitter{MinSize: minSize, MaxSize: maxSize, Polynomial: cp}
+	return &splitter{MinSize: minSize, MaxSize: maxSize, Polynomial: cp, hasher: DefaultHasher()}
+}
+
+func DefaultHasher() Hasher {
+	return &ZeeboHasher{}
 }
 
 func (s *splitter) ReadManifest(path string) (*Manifest, error) {
@@ -215,7 +222,7 @@ func (s *splitter) Split(source io.Reader, dstDir string) (string, error) {
 
 	var totalSize int64
 	var err error
-	h := sha256.New()
+	h := s.hasher.Hasher()
 	tee := io.TeeReader(source, h)
 
 	chnkr := chunker.NewWithBoundaries(tee, s.Polynomial, s.MinSize, s.MaxSize)
@@ -233,7 +240,7 @@ func (s *splitter) Split(source io.Reader, dstDir string) (string, error) {
 		}
 
 		totalSize = totalSize + int64(chunk.Length)
-		csum := sha256.Sum256(chunk.Data)
+		csum := s.hasher.Hash(chunk.Data)
 		chunks = append(chunks, fmt.Sprintf("%d %02x", chunk.Length, csum))
 		tfile := fmt.Sprintf("%s/%02x.chk", dstDir, csum)
 		os.WriteFile(tfile, chunk.Data, 0644)

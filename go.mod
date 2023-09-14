@@ -4,9 +4,10 @@ go 1.21rc4
 
 require (
 	github.com/cheggaaa/pb/v3 v3.1.4
-	github.com/minio/sha256-simd v1.0.1
 	github.com/mkideal/cli v0.2.7
 	github.com/restic/chunker v0.4.1-0.20221205210355-db20dabc1bbe
+	github.com/zeebo/blake3 v0.2.3
+	lukechampine.com/blake3 v1.2.1
 )
 
 require (
