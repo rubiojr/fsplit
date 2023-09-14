@@ -8,6 +8,7 @@ import (
 	"github.com/cheggaaa/pb/v3"
 	"github.com/mkideal/cli"
 	"github.com/rubiojr/fsplit"
+	"github.com/rubiojr/fsplit/hasher"
 )
 
 var help = cli.HelpCommand("Display help information")
@@ -81,14 +82,16 @@ var splitCmd = &cli.Command{
 	Fn: func(ctx *cli.Context) error {
 		argv := ctx.Argv().(*splitT)
 
-		var hasher fsplit.Hasher
+		var h hasher.Hasher
 		switch argv.Hasher {
+		case "blake2b":
+			h = hasher.NewBlake2bHasher()
 		case "zeebo":
-			hasher = fsplit.NewZeeboHasher()
+			h = hasher.NewZeeboHasher()
 		case "sha256":
-			hasher = fsplit.NewSha256Hasher()
+			h = hasher.NewSha256Hasher()
 		case "luke":
-			hasher = fsplit.NewLukeHasher()
+			h = hasher.NewLukeHasher()
 		default:
 			fmt.Fprintln(os.Stderr, "Unknown hasher:", argv.Hasher)
 			os.Exit(1)
@@ -100,7 +103,7 @@ var splitCmd = &cli.Command{
 		}
 
 		splitter := fsplit.DefaultSplitter()
-		splitter.SetHasher(hasher)
+		splitter.SetHasher(h)
 
 		var sf io.Reader
 		sf, err := os.Open(argv.Source)

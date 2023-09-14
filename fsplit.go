@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/restic/chunker"
+	"github.com/rubiojr/fsplit/hasher"
 )
 
 const minSize = 128 * 1024 * 1024
@@ -37,17 +38,17 @@ type Splitter interface {
 	StreamChunks(source io.Reader, chunks chan *Chunk, done chan string) error
 	SplitParallel(source io.Reader, dstDir string) (string, error)
 	ChunkerPolynomial() chunker.Pol
-	SetHasher(h Hasher)
+	SetHasher(h hasher.Hasher)
 }
 
 type splitter struct {
 	MinSize    uint // in Bytes
 	MaxSize    uint // in Bytes
 	Polynomial chunker.Pol
-	hasher     Hasher
+	hasher     hasher.Hasher
 }
 
-func (s *splitter) SetHasher(h Hasher) {
+func (s *splitter) SetHasher(h hasher.Hasher) {
 	s.hasher = h
 }
 
@@ -153,8 +154,8 @@ func DefaultSplitter() Splitter {
 	return &splitter{MinSize: minSize, MaxSize: maxSize, Polynomial: cp, hasher: DefaultHasher()}
 }
 
-func DefaultHasher() Hasher {
-	return &ZeeboHasher{}
+func DefaultHasher() hasher.Hasher {
+	return hasher.NewZeeboHasher()
 }
 
 func (s *splitter) ReadManifest(path string) (*Manifest, error) {
